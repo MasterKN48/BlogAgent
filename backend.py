@@ -171,27 +171,32 @@ def route_next(state: State) -> str:
 # -----------------------------
 # 4) Research (Tavily)
 # -----------------------------
-def _tavily_search(query: str, max_results: int = 5) -> List[dict]:
-    if not os.getenv("TAVILY_API_KEY"):
-        return []
+def _web_search(query: str, max_results: int = 5) -> List[dict]:
+    """
+    Unified web search using SearXNG (local).
+    """
+    searxng_url = os.getenv("SEARXNG_URL", "http://localhost:8080")
     try:
-        from langchain_tavily import TavilySearch  # type: ignore
+        from langchain_community.utilities import SearxSearchWrapper
 
-        tool = TavilySearch(max_results=max_results)
-        results = tool.invoke({"query": query})
+        search = SearxSearchWrapper(searx_host=searxng_url)
+        # SearxSearchWrapper.results(query, num_results=...) returns list of dicts: [title, link, snippet]
+        results = search.results(query, num_results=max_results)
+
         out: List[dict] = []
         for r in results or []:
             out.append(
                 {
                     "title": r.get("title") or "",
-                    "url": r.get("url") or "",
-                    "snippet": r.get("content") or r.get("snippet") or "",
-                    "published_at": r.get("published_date") or r.get("published_at"),
-                    "source": r.get("source"),
+                    "url": r.get("link") or r.get("url") or "",
+                    "snippet": r.get("snippet") or r.get("content") or "",
+                    "published_at": None,  # Searx result dict usually doesn't have this by default
+                    "source": None,
                 }
             )
         return out
-    except Exception:
+    except Exception as e:
+        print(f"SearXNG search failed: {e}")
         return []
 
 
@@ -221,7 +226,7 @@ def research_node(state: State) -> dict:
     queries = (state.get("queries") or [])[:10]
     raw: List[dict] = []
     for q in queries:
-        raw.extend(_tavily_search(q, max_results=6))
+        raw.extend(_web_search(q, max_results=6))
 
     if not raw:
         return {"evidence": []}
